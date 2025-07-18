@@ -118,9 +118,9 @@
         import { getFirestore, collection, onSnapshot, addDoc, setDoc, doc, deleteDoc, query, orderBy } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // Global variables for Firebase (provided by Canvas environment)
-       const appId = 'auto-psy-v1'; // Choisissez un ID unique pour votre application, par exemple 'auto-psy-v1'
+       const appId = 'auto-psy-v1'; 
 const firebaseConfig = { /* ... votre config Firebase ... */ };
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const appId = typeof __app_id !== 'auto-psy-v1' ? __app_id : '1:378163118374';
         <script type="module">
   // Import the functions you need from the SDKs you need
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-app.js";
@@ -140,7 +140,7 @@ const firebaseConfig = { /* ... votre config Firebase ... */ };
   // Initialize Firebase
   const app = initializeApp(firebaseConfig);
 </script>
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        const initialAuthToken = typeof __initial_auth_token !== null ? __initial_auth_token : null;
 
         // Initialize Firebase
         let app;
