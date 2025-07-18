@@ -118,7 +118,7 @@
         import { getFirestore, collection, onSnapshot, addDoc, setDoc, doc, deleteDoc, query, orderBy } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // Global variables for Firebase (provided by Canvas environment)
-        const appId = __app_id !== 'auto-psy-v1';
+        const appId = typeof __app_id !== 'auto-psy-v1' ? __app_id : 'auto-psy-v1';
         const firebaseConfig = {
     apiKey: "AIzaSyB8iFnHrKgZoDJU0Z0q8tOOCJ9juWbvziM",
     authDomain: "autopsydata.firebaseapp.com",
