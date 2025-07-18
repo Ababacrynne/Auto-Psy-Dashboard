@@ -1,0 +1,1409 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auto-Psy - Tableau de Bord Communautaire</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Styles personnalisés pour remplacer ou étendre Tailwind, et pour des éléments spécifiques */
+        body {
+            font-family: 'Inter', sans-serif; /* Utilise la police Inter */
+            background-color: #f7f6f3; /* Fond similaire à Notion */
+            color: #37352f;
+        }
+        .header-gradient {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .database-header-gradient {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+        .nav-tab.active {
+            background-color: #667eea;
+            color: white;
+            border-bottom: 3px solid #667eea;
+        }
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+        .status-actif { background: #d4edda; color: #155724; }
+        .status-inactif { background: #f8d7da; color: #721c24; }
+        .status-ca { background: #fff3cd; color: #856404; }
+        .status-planifie { background: #cce5ff; color: #004085; }
+        .status-termine { background: #d4edda; color: #155724; }
+        .status-en-cours { background: #fff3cd; color: #856404; }
+        .status-publie { background: #d4edda; color: #155724; }
+        .status-montage { background: #fff3cd; color: #856404; }
+        .status-valide { background: #d4edda; color: #155724; }
+        .status-brouillon { background: #e0e0e0; color: #424242; }
+        .status-enrevision { background: #ffecb3; color: #ff6f00; }
+        .status-archive { background: #bdbdbd; color: #424242; }
+        .status-idee { background: #e0f7fa; color: #006064; }
+        .status-enpause { background: #ffe0b2; color: #e65100; }
+        .status-annule { background: #ffcdd2; color: #b71c1c; }
+        .status-enattente { background: #ffe0b2; color: #e65100; }
+        .status-enproduction { background: #e1bee7; color: #6a1b9a; }
+
+
+        .priority-haute { color: #dc3545; font-weight: bold; }
+        .priority-normale { color: #28a745; }
+        .priority-basse { color: #6c757d; }
+
+        /* Styles spécifiques aux modales */
+        .modal {
+            display: none; /* Caché par défaut */
+            position: fixed; /* Reste en place */
+            z-index: 1000; /* Au-dessus de tout */
+            left: 0;
+            top: 0;
+            width: 100%; /* Pleine largeur */
+            height: 100%; /* Pleine hauteur */
+            overflow: auto; /* Permet le défilement si nécessaire */
+            background-color: rgba(0,0,0,0.5); /* Noir avec opacité */
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: auto;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            width: 90%;
+            max-width: 600px;
+            max-height: 90vh; /* Limite la hauteur pour le défilement */
+            overflow-y: auto; /* Active le défilement pour le contenu */
+            position: relative;
+        }
+        .close-button {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            position: absolute;
+            top: 10px;
+            right: 20px;
+        }
+        .close-button:hover,
+        .close-button:focus {
+            color: black;
+            text-decoration: none;
+            cursor: pointer;
+        }
+        .loading-spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            display: none; /* Hidden by default */
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, onSnapshot, addDoc, setDoc, doc, deleteDoc, query, orderBy } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global variables for Firebase (provided by Canvas environment)
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        // Initialize Firebase
+        let app;
+        let db;
+        let auth;
+        let userId = 'loading'; // Default state
+        let isAuthReady = false; // Flag to ensure auth is ready before Firestore ops
+
+        // Expose Firebase objects to the global scope for use in other script tags
+        window.firebaseApp = null;
+        window.firestoreDb = null;
+        window.firebaseAuth = null;
+        window.currentUserId = null;
+
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                window.firebaseApp = app;
+                window.firestoreDb = db;
+                window.firebaseAuth = auth;
+
+                // Authenticate user
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        window.currentUserId = userId; // Make userId globally available
+                        document.getElementById('userIdDisplay').textContent = `ID Utilisateur: ${userId}`;
+                        isAuthReady = true;
+                        console.log("Firebase Auth ready. User ID:", userId);
+                        // Start listening to Firestore collections only after auth is ready
+                        setupFirestoreListeners();
+                    } else {
+                        console.log("No user signed in.");
+                        userId = 'anonymous';
+                        window.currentUserId = userId;
+                        document.getElementById('userIdDisplay').textContent = `ID Utilisateur: ${userId} (Anonyme)`;
+                        isAuthReady = true;
+                        setupFirestoreListeners(); // Still set up listeners for anonymous data if allowed by rules
+                    }
+                });
+
+            } catch (error) {
+                console.error("Error initializing Firebase or signing in:", error);
+                document.getElementById('userIdDisplay').textContent = `Erreur Firebase: ${error.message}`;
+            }
+        });
+
+        // Global data arrays (will be populated by Firestore listeners)
+        window.membersData = [];
+        window.interactionsData = [];
+        window.eventsData = [];
+        window.projectsData = [];
+        window.resourcesData = [];
+        window.mediaData = [];
+
+        // Function to set up real-time listeners for all collections
+        function setupFirestoreListeners() {
+            if (!isAuthReady) {
+                console.warn("Auth not ready, delaying Firestore listeners setup.");
+                return;
+            }
+            console.log("Setting up Firestore listeners for user:", userId);
+            const showSpinner = () => { document.getElementById('loadingSpinner').style.display = 'block'; };
+            const hideSpinner = () => { document.getElementById('loadingSpinner').style.display = 'none'; };
+
+            showSpinner();
+
+            // Members
+            onSnapshot(query(collection(db, `artifacts/${appId}/users/${userId}/members`)), (snapshot) => {
+                window.membersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                renderMembersTable();
+                hideSpinner();
+            }, (error) => {
+                console.error("Error fetching members:", error);
+                hideSpinner();
+            });
+
+            // Interactions
+            onSnapshot(query(collection(db, `artifacts/${appId}/users/${userId}/interactions`)), (snapshot) => {
+                window.interactionsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                renderInteractionsTable();
+                generateCalendar(); // Update calendar as interactions might change
+                hideSpinner();
+            }, (error) => {
+                console.error("Error fetching interactions:", error);
+                hideSpinner();
+            });
+
+            // Events
+            onSnapshot(query(collection(db, `artifacts/${appId}/users/${userId}/events`)), (snapshot) => {
+                window.eventsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                renderEventsTable();
+                generateCalendar(); // Update calendar as events might change
+                hideSpinner();
+            }, (error) => {
+                console.error("Error fetching events:", error);
+                hideSpinner();
+            });
+
+            // Projects
+            onSnapshot(query(collection(db, `artifacts/${appId}/users/${userId}/projects`)), (snapshot) => {
+                window.projectsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                renderProjectsTable();
+                hideSpinner();
+            }, (error) => {
+                console.error("Error fetching projects:", error);
+                hideSpinner();
+            });
+
+            // Resources
+            onSnapshot(query(collection(db, `artifacts/${appId}/users/${userId}/resources`)), (snapshot) => {
+                window.resourcesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                renderResourcesTable();
+                hideSpinner();
+            }, (error) => {
+                console.error("Error fetching resources:", error);
+                hideSpinner();
+            });
+
+            // Media
+            onSnapshot(query(collection(db, `artifacts/${appId}/users/${userId}/media`)), (snapshot) => {
+                window.mediaData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                renderMediaTable();
+                hideSpinner();
+            }, (error) => {
+                console.error("Error fetching media:", error);
+                hideSpinner();
+            });
+
+            // Update Dashboard Stats after data is loaded
+            updateDashboardStats();
+        }
+
+        // Function to update dashboard statistics
+        function updateDashboardStats() {
+            document.getElementById('activeMembers').textContent = window.membersData.filter(m => m.status === 'Membre' || m.status === 'Bénévole' || m.status === 'CA').length;
+            const today = new Date();
+            const currentMonth = today.getMonth();
+            const currentYear = today.getFullYear();
+            document.getElementById('monthlyEvents').textContent = window.eventsData.filter(e => {
+                const eventDate = new Date(e.date);
+                return eventDate.getMonth() === currentMonth && eventDate.getFullYear() === currentYear;
+            }).length;
+            document.getElementById('activeProjects').textContent = window.projectsData.filter(p => p.status === 'En cours').length;
+        }
+
+    </script>
+</head>
+<body class="p-4 sm:p-6 lg:p-8">
+    <div class="container mx-auto max-w-7xl">
+        <!-- Section d'en-tête -->
+        <div class="header-gradient text-white p-6 sm:p-8 lg:p-10 rounded-xl shadow-lg mb-8">
+            <h1 class="text-3xl sm:text-4xl font-bold mb-2">🧠 Auto-Psy</h1>
+            <p class="text-lg sm:text-xl opacity-90">Système de gestion communautaire pour la défense des droits en santé mentale</p>
+            <p id="userIdDisplay" class="text-sm mt-2 opacity-80">ID Utilisateur: Chargement...</p>
+        </div>
+
+        <!-- Onglets de navigation -->
+        <div class="flex flex-wrap gap-2 sm:gap-4 mb-8 border-b-2 border-gray-200 pb-0">
+            <button class="nav-tab px-4 py-2 sm:px-6 sm:py-3 bg-white rounded-t-lg font-medium text-base sm:text-lg transition-all duration-300 ease-in-out border-b-3 border-transparent hover:bg-gray-100 active" onclick="showTab('dashboard')">📊 Tableau de bord</button>
+            <button class="nav-tab px-4 py-2 sm:px-6 sm:py-3 bg-white rounded-t-lg font-medium text-base sm:text-lg transition-all duration-300 ease-in-out border-b-3 border-transparent hover:bg-gray-100" onclick="showTab('membres')">👥 Membres</button>
+            <button class="nav-tab px-4 py-2 sm:px-6 sm:py-3 bg-white rounded-t-lg font-medium text-base sm:text-lg transition-all duration-300 ease-in-out border-b-3 border-transparent hover:bg-gray-100" onclick="showTab('interactions')">💬 Interactions</button>
+            <button class="nav-tab px-4 py-2 sm:px-6 sm:py-3 bg-white rounded-t-lg font-medium text-base sm:text-lg transition-all duration-300 ease-in-out border-b-3 border-transparent hover:bg-gray-100" onclick="showTab('evenements')">📅 Événements</button>
+            <button class="nav-tab px-4 py-2 sm:px-6 sm:py-3 bg-white rounded-t-lg font-medium text-base sm:text-lg transition-all duration-300 ease-in-out border-b-3 border-transparent hover:bg-gray-100" onclick="showTab('projets')">🎯 Projets</button>
+            <button class="nav-tab px-4 py-2 sm:px-6 sm:py-3 bg-white rounded-t-lg font-medium text-base sm:text-lg transition-all duration-300 ease-in-out border-b-3 border-transparent hover:bg-gray-100" onclick="showTab('ressources')">📚 Ressources</button>
+            <button class="nav-tab px-4 py-2 sm:px-6 sm:py-3 bg-white rounded-t-lg font-medium text-base sm:text-lg transition-all duration-300 ease-in-out border-b-3 border-transparent hover:bg-gray-100" onclick="showTab('media')">🎥 Médias</button>
+        </div>
+
+        <!-- Contenu de l'onglet Tableau de bord -->
+        <div id="dashboard" class="tab-content active bg-white p-6 sm:p-8 rounded-xl shadow-md">
+            <div class="loading-spinner" id="loadingSpinner"></div>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+                <!-- Carte Statistiques générales -->
+                <div class="dashboard-card bg-white p-6 rounded-xl shadow-md border-l-4 border-blue-500">
+                    <h4 class="text-blue-600 text-xl font-semibold mb-4">📊 Statistiques générales</h4>
+                    <div class="flex justify-between items-center py-2 border-b border-gray-100 last:border-b-0">
+                        <span>Membres actifs</span>
+                        <span class="text-blue-600 text-2xl font-bold" id="activeMembers">0</span>
+                    </div>
+                    <div class="flex justify-between items-center py-2 border-b border-gray-100 last:border-b-0">
+                        <span>Événements ce mois</span>
+                        <span class="text-blue-600 text-2xl font-bold" id="monthlyEvents">0</span>
+                    </div>
+                    <div class="flex justify-between items-center py-2 last:border-b-0">
+                        <span>Projets en cours</span>
+                        <span class="text-blue-600 text-2xl font-bold" id="activeProjects">0</span>
+                    </div>
+                </div>
+
+                <!-- Carte Actions urgentes -->
+                <div class="dashboard-card bg-white p-6 rounded-xl shadow-md border-l-4 border-red-500">
+                    <h4 class="text-red-600 text-xl font-semibold mb-4">⚡ Actions urgentes</h4>
+                    <div class="flex justify-between items-center py-2 border-b border-gray-100 last:border-b-0">
+                        <span>Interactions à traiter</span>
+                        <span class="text-red-600 text-2xl font-bold" id="interactionsToProcess">0</span>
+                    </div>
+                    <div class="flex justify-between items-center py-2 border-b border-gray-100 last:border-b-0">
+                        <span>Événements cette semaine</span>
+                        <span class="text-green-600 text-2xl font-bold" id="eventsThisWeek">0</span>
+                    </div>
+                    <div class="flex justify-between items-center py-2 last:border-b-0">
+                        <span>Projets en retard</span>
+                        <span class="text-red-600 text-2xl font-bold" id="overdueProjects">0</span>
+                    </div>
+                </div>
+
+                <!-- Carte Suivi relationnel -->
+                <div class="dashboard-card bg-white p-6 rounded-xl shadow-md border-l-4 border-purple-500">
+                    <h4 class="text-purple-600 text-xl font-semibold mb-4">👥 Suivi relationnel</h4>
+                    <div class="flex justify-between items-center py-2 border-b border-gray-100 last:border-b-0">
+                        <span>Membres à contacter</span>
+                        <span class="text-green-600 text-2xl font-bold" id="membersToContact">0</span>
+                    </div>
+                    <div class="flex justify-between items-center py-2 border-b border-gray-100 last:border-b-0">
+                        <span>Nouveaux membres (30 jours)</span>
+                        <span class="text-blue-600 text-2xl font-bold" id="newMembers">0</span>
+                    </div>
+                    <div class="flex justify-between items-center py-2 last:border-b-0">
+                        <span>Anniversaires d'adhésion ce mois</span>
+                        <span class="text-blue-600 text-2xl font-bold" id="joinAnniversaries">0</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section Calendrier de la semaine -->
+            <div class="database-section">
+                <div class="database-header-gradient flex items-center p-4 rounded-lg text-white mb-6 shadow-md">
+                    <span class="text-2xl mr-4">📅</span>
+                    <h3 class="text-2xl font-semibold">Calendrier de la semaine</h3>
+                </div>
+                <div id="calendarView" class="grid grid-cols-7 gap-px bg-gray-300 rounded-lg overflow-hidden shadow-sm">
+                    <!-- Les jours du calendrier seront insérés dynamiquement ici -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Contenu de l'onglet Membres -->
+        <div id="membres" class="tab-content hidden bg-white p-6 sm:p-8 rounded-xl shadow-md">
+            <div class="database-section">
+                <div class="database-header-gradient flex items-center p-4 rounded-lg text-white mb-6 shadow-md">
+                    <span class="text-2xl mr-4">👥</span>
+                    <h3 class="text-2xl font-semibold">Base de données Membres</h3>
+                    <div class="flex-grow"></div> <!-- Espacement -->
+                    <button class="add-btn bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg shadow transition-all duration-300 text-sm ml-4" onclick="openAddEditModal('member')">+ Nouveau membre</button>
+                    <button class="export-btn bg-cyan-600 hover:bg-cyan-700 text-white px-4 py-2 rounded-lg shadow transition-all duration-300 text-sm ml-2" onclick="exportData('members')">📊 Exporter</button>
+                </div>
+
+                <input type="text" class="search-bar w-full p-3 border-2 border-gray-300 rounded-lg text-lg mb-6 focus:outline-none focus:border-blue-500" placeholder="Rechercher un membre..." onkeyup="filterTable('membersTable', this.value)">
+
+                <div class="overflow-x-auto">
+                    <table class="database-table w-full border-collapse bg-white rounded-lg shadow-sm" id="membersTable">
+                        <thead>
+                            <tr class="bg-gray-100 text-left">
+                                <th class="p-3 font-semibold border-b-2 border-gray-200 rounded-tl-lg">Nom</th>
+                                <th class="p-3 font-semibold border-b-2 border-gray-200">Email</th>
+                                <th class="p-3 font-semibold border-b-2 border-gray-200">Statut</th>
+                                <th class="p-3 font-semibold border-b-2 border-gray-200">Niveau d'engagement</th>
+                                <th class="p-3 font-semibold border-b-2 border-gray-200">Date d'adhésion</th>
+                                <th class="p-3 font-semibold border-b-2 border-gray-200">Dernière interaction</th>
+                                <th class="p-3 font-semibold border-b-2 border-gray-200 rounded-tr-lg">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="membersTableBody">
+                            <!-- Les données des membres seront chargées dynamiquement ici -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Contenu de l'onglet Interactions -->
+        <div id="interactions" class="tab-content hidden bg-white p-6 sm:p-8 rounded-xl shadow-md">
+            <div class="database-section">
+                <div class="database-header-gradient flex items-center p-4 rounded-lg text-white mb-6 shadow-md">
+                    <span class="text-2xl mr-4">💬</span>
+                    <h3 class="text-2xl font-semibold">Historique des interactions</h3>
+                    <div class="flex-grow"></div>
+                    <button class="add-btn bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg shadow transition-all duration-300 text-sm ml-4" onclick="openAddEditModal('interaction')">+ Nouvelle interaction</button>
+                    <button class="export-btn bg-cyan-600 hover:bg-cyan-700 text-white px-4 py-2 rounded-lg shadow transition-all duration-300 text-sm ml-2" onclick="exportData('interactions')">📊 Exporter</button>
+                </div>
+
+                <input type="text" class="search-bar w-full p-3 border-2 border-gray-300 rounded-lg text-lg mb-6 focus:outline-none focus:border-blue-500" placeholder="Rechercher une interaction..." onkeyup="filterTable('interactionsTable', this.value)">
+
+                <div class="overflow-x-auto">
+                    <table class="database-table w-full border-collapse bg-white rounded-lg shadow-sm" id="interactionsTable">
+                        <thead>
+                            <tr class="bg-gray-100 text-left">
+                                <th class="p-3 font-semibold border-b-2 border-gray-200 rounded-tl-lg">Date</th>
+                                <th class="p-3 font-semibold border-b-2 border-gray-200">Membre</th>
+                                <th class="p-3 font-semibold border-b-2 border-gray-200">Type</th>
+                                <th class="p-3 font-semibold border-b-2 border-gray-200">Contexte</th>
+                                <th class="p-3 font-semibold border-b-2 border-gray-200">Priorité</th>
+                                <th class="p-3 font-semibold border-b-2 border-gray-200">Statut</th>
+                                <th class="p-3 font-semibold border-b-2 border-gray-200 rounded-tr-lg">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="interactionsTableBody">
+                            <!-- Les données des interactions seront chargées dynamiquement ici -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Contenu de l'onglet Événements -->
+        <div id="evenements" class="tab-content hidden bg-white p-6 sm:p-8 rounded-xl shadow-md">
+            <div class="database-section">
+                <div class="database-header-gradient flex items-center p-4 rounded-lg text-white mb-6 shadow-md">
+                    <span class="text-2xl mr-4">📅</span>
+                    <h3 class="text-2xl font-semibold">Gestion des événements</h3>
+                    <div class="flex-grow"></div>
+                    <button class="add-btn bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg shadow transition-all duration-300 text-sm ml-4" onclick="openAddEditModal('event')">+ Nouvel événement</button>
+                    <button class="export-btn bg-cyan-600 hover:bg-cyan-700 text-white px-4 py-2 rounded-lg shadow transition-all duration-300 text-sm ml-2" onclick="exportData('events')">📊 Exporter</button>
+                </div>
+
+                <input type="text" class="search-bar w-full p-3 border-2 border-gray-300 rounded-lg text-lg mb-6 focus:outline-none focus:border-blue-500" placeholder="Rechercher un événement..." onkeyup="filterTable('eventsTable', this.value)">
+
+                <div class="overflow-x-auto">
+                    <table class="database-table w-full border-collapse bg-white rounded-lg shadow-sm" id="eventsTable">
+                        <thead>
+                            <tr class="bg-gray-100 text-left">
+                                <th class="p-3 font-semibold border-b-2 border-gray-200 rounded-tl-lg">Nom</th>
+                                <th class="p-3 font-semibold border-b-2 border-gray-200">Type</th>
+                                <th class="p-3 font-semibold border-b-2 border-gray-200">Date</th>
+                                <th class="p-3 font-semibold border-b-2 border-gray-200">Lieu</th>
+                                <th class="p-3 font-semibold border-b-2 border-gray-200">Statut</th>
+                                <th class="p-3 font-semibold border-b-2 border-gray-200">Participants</th>
+                                <th class="p-3 font-semibold border-b-2 border-gray-200 rounded-tr-lg">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="eventsTableBody">
+                            <!-- Les données des événements seront chargées dynamiquement ici -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Contenu de l'onglet Projets -->
+        <div id="projets" class="tab-content hidden bg-white p-6 sm:p-8 rounded-xl shadow-md">
+            <div class="database-section">
+                <div class="database-header-gradient flex items-center p-4 rounded-lg text-white mb-6 shadow-md">
+                    <span class="text-2xl mr-4">🎯</span>
+                    <h3 class="text-2xl font-semibold">Suivi des projets</h3>
+                    <div class="flex-grow"></div>
+                    <button class="add-btn bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg shadow transition-all duration-300 text-sm ml-4" onclick="openAddEditModal('project')">+ Nouveau projet</button>
+                    <button class="export-btn bg-cyan-600 hover:bg-cyan-700 text-white px-4 py-2 rounded-lg shadow transition-all duration-300 text-sm ml-2" onclick="exportData('projects')">📊 Exporter</button>
+                </div>
+
+                <input type="text" class="search-bar w-full p-3 border-2 border-gray-300 rounded-lg text-lg mb-6 focus:outline-none focus:border-blue-500" placeholder="Rechercher un projet..." onkeyup="filterTable('projectsTable', this.value)">
+
+                <div class="overflow-x-auto">
+                    <table class="database-table w-full border-collapse bg-white rounded-lg shadow-sm" id="projectsTable">
+                        <thead>
+                            <tr class="bg-gray-100 text-left">
+                                <th class="p-3 font-semibold border-b-2 border-gray-200 rounded-tl-lg">Nom</th>
+                                <th class="p-3 font-semibold border-b-2 border-gray-200">Statut</th>
+                                <th class="p-3 font-semibold border-b-2 border-gray-200">Priorité</th>
+                                <th class="p-3 font-semibold border-b-2 border-gray-200">Responsable</th>
+                                <th class="p-3 font-semibold border-b-2 border-gray-200">Échéance</th>
+                                <th class="p-3 font-semibold border-b-2 border-gray-200">Avancement</th>
+                                <th class="p-3 font-semibold border-b-2 border-gray-200 rounded-tr-lg">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="projectsTableBody">
+                            <!-- Les données des projets seront chargées dynamiquement ici -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Contenu de l'onglet Ressources -->
+        <div id="ressources" class="tab-content hidden bg-white p-6 sm:p-8 rounded-xl shadow-md">
+            <div class="database-section">
+                <div class="database-header-gradient flex items-center p-4 rounded-lg text-white mb-6 shadow-md">
+                    <span class="text-2xl mr-4">📚</span>
+                    <h3 class="text-2xl font-semibold">Bibliothèque de ressources</h3>
+                    <div class="flex-grow"></div>
+                    <button class="add-btn bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg shadow transition-all duration-300 text-sm ml-4" onclick="openAddEditModal('resource')">+ Nouvelle ressource</button>
+                    <button class="export-btn bg-cyan-600 hover:bg-cyan-700 text-white px-4 py-2 rounded-lg shadow transition-all duration-300 text-sm ml-2" onclick="exportData('resources')">📊 Exporter</button>
+                </div>
+
+                <input type="text" class="search-bar w-full p-3 border-2 border-gray-300 rounded-lg text-lg mb-6 focus:outline-none focus:border-blue-500" placeholder="Rechercher une ressource..." onkeyup="filterTable('resourcesTable', this.value)">
+
+                <div class="overflow-x-auto">
+                    <table class="database-table w-full border-collapse bg-white rounded-lg shadow-sm" id="resourcesTable">
+                        <thead>
+                            <tr class="bg-gray-100 text-left">
+                                <th class="p-3 font-semibold border-b-2 border-gray-200 rounded-tl-lg">Nom</th>
+                                <th class="p-3 font-semibold border-b-2 border-gray-200">Type</th>
+                                <th class="p-3 font-semibold border-b-2 border-gray-200">Catégorie</th>
+                                <th class="p-3 font-semibold border-b-2 border-gray-200">Créé par</th>
+                                <th class="p-3 font-semibold border-b-2 border-gray-200">Date création</th>
+                                <th class="p-3 font-semibold border-b-2 border-gray-200">Statut</th>
+                                <th class="p-3 font-semibold border-b-2 border-gray-200 rounded-tr-lg">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="resourcesTableBody">
+                            <!-- Les données des ressources seront chargées dynamiquement ici -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Contenu de l'onglet Médias -->
+        <div id="media" class="tab-content hidden bg-white p-6 sm:p-8 rounded-xl shadow-md">
+            <div class="database-section">
+                <div class="database-header-gradient flex items-center p-4 rounded-lg text-white mb-6 shadow-md">
+                    <span class="text-2xl mr-4">🎥</span>
+                    <h3 class="text-2xl font-semibold">Contenus médias</h3>
+                    <div class="flex-grow"></div>
+                    <button class="add-btn bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg shadow transition-all duration-300 text-sm ml-4" onclick="openAddEditModal('media')">+ Nouveau média</button>
+                    <button class="export-btn bg-cyan-600 hover:bg-cyan-700 text-white px-4 py-2 rounded-lg shadow transition-all duration-300 text-sm ml-2" onclick="exportData('media')">📊 Exporter</button>
+                </div>
+
+                <input type="text" class="search-bar w-full p-3 border-2 border-gray-300 rounded-lg text-lg mb-6 focus:outline-none focus:border-blue-500" placeholder="Rechercher un média..." onkeyup="filterTable('mediaTable', this.value)">
+
+                <div class="overflow-x-auto">
+                    <table class="database-table w-full border-collapse bg-white rounded-lg shadow-sm" id="mediaTable">
+                        <thead>
+                            <tr class="bg-gray-100 text-left">
+                                <th class="p-3 font-semibold border-b-2 border-gray-200 rounded-tl-lg">Titre</th>
+                                <th class="p-3 font-semibold border-b-2 border-gray-200">Type</th>
+                                <th class="p-3 font-semibold border-b-2 border-gray-200">Statut</th>
+                                <th class="p-3 font-semibold border-b-2 border-gray-200">Date publication</th>
+                                <th class="p-3 font-semibold border-b-2 border-gray-200">Intervenant</th>
+                                <th class="p-3 font-semibold border-b-2 border-gray-200">Vues</th>
+                                <th class="p-3 font-semibold border-b-2 border-gray-200 rounded-tr-lg">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="mediaTableBody">
+                            <!-- Les données des médias seront chargées dynamiquement ici -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modale universelle d'ajout/édition -->
+    <div id="addEditModal" class="modal flex">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeModal('addEditModal')">&times;</span>
+            <h2 id="modalTitle" class="text-2xl font-bold mb-6">Ajouter / Modifier</h2>
+            <form id="modalForm">
+                <!-- Les champs du formulaire seront insérés dynamiquement ici en fonction du type -->
+            </form>
+            <div class="flex justify-end mt-6">
+                <button type="button" class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded-lg shadow transition-all duration-300 mr-2" onclick="closeModal('addEditModal')">Annuler</button>
+                <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg shadow transition-all duration-300" id="modalSubmitButton">Enregistrer</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modale de visualisation générique -->
+    <div id="viewModal" class="modal flex">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeModal('viewModal')">&times;</span>
+            <h2 id="viewModalTitle" class="text-2xl font-bold mb-6">Détails</h2>
+            <div id="viewModalContent" class="text-gray-700">
+                <!-- Le contenu sera inséré dynamiquement ici -->
+            </div>
+            <div class="flex justify-end mt-6">
+                <button type="button" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg shadow transition-all duration-300" onclick="closeModal('viewModal')">Fermer</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Référence aux données globales exposées par le script de module Firebase
+        let membersData = window.membersData;
+        let interactionsData = window.interactionsData;
+        let eventsData = window.eventsData;
+        let projectsData = window.projectsData;
+        let resourcesData = window.resourcesData;
+        let mediaData = window.mediaData;
+
+        // Fonction pour changer d'onglet
+        function showTab(tabId) {
+            // Cacher tous les contenus d'onglet
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.add('hidden');
+                tab.classList.remove('active');
+            });
+
+            // Désactiver tous les onglets de navigation
+            document.querySelectorAll('.nav-tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+
+            // Afficher le contenu de l'onglet sélectionné
+            document.getElementById(tabId).classList.remove('hidden');
+            document.getElementById(tabId).classList.add('active');
+
+            // Activer l'onglet de navigation correspondant
+            document.querySelector(`.nav-tab[onclick="showTab('${tabId}')"]`).classList.add('active');
+
+            // Re-rendre les données pour l'onglet actif (important pour le contenu dynamique)
+            if (tabId === 'membres') renderMembersTable();
+            if (tabId === 'interactions') renderInteractionsTable();
+            if (tabId === 'evenements') renderEventsTable();
+            if (tabId === 'projets') renderProjectsTable();
+            if (tabId === 'ressources') renderResourcesTable();
+            if (tabId === 'media') renderMediaTable();
+            if (tabId === 'dashboard') updateDashboardStats(); // Mettre à jour les stats du tableau de bord
+        }
+
+        // Fonction pour ouvrir la modale universelle d'ajout/édition
+        let currentModalType = ''; // Garde une trace du type de données en cours d'édition/ajout
+        let currentEditId = null; // Stocke l'ID de l'élément en cours d'édition
+
+        async function openAddEditModal(type, id = null) {
+            currentModalType = type;
+            currentEditId = id;
+            const modal = document.getElementById('addEditModal');
+            const modalTitle = document.getElementById('modalTitle');
+            const modalForm = document.getElementById('modalForm');
+            modalForm.innerHTML = ''; // Effacer les champs de formulaire précédents
+
+            modalTitle.textContent = id ? `Modifier ${type.charAt(0).toUpperCase() + type.slice(1)}` : `Nouveau ${type.charAt(0).toUpperCase() + type.slice(1)}`;
+
+            let formData = {};
+            if (id) {
+                // Charger les données existantes pour l'édition
+                switch (type) {
+                    case 'member': formData = window.membersData.find(m => m.id === id); break;
+                    case 'interaction': formData = window.interactionsData.find(i => i.id === id); break;
+                    case 'event': formData = window.eventsData.find(e => e.id === id); break;
+                    case 'project': formData = window.projectsData.find(p => p.id === id); break;
+                    case 'resource': formData = window.resourcesData.find(r => r.id === id); break;
+                    case 'media': formData = window.mediaData.find(m => m.id === id); break;
+                }
+            }
+
+            // Générer les champs de formulaire en fonction du type
+            switch (type) {
+                case 'member':
+                    modalForm.innerHTML = `
+                        <div class="mb-4">
+                            <label for="memberName" class="block text-gray-700 text-sm font-bold mb-2">Nom complet *</label>
+                            <input type="text" id="memberName" value="${formData.name || ''}" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" required>
+                        </div>
+                        <div class="mb-4">
+                            <label for="memberEmail" class="block text-gray-700 text-sm font-bold mb-2">Email *</label>
+                            <input type="email" id="memberEmail" value="${formData.email || ''}" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" required>
+                        </div>
+                        <div class="mb-4">
+                            <label for="memberPhone" class="block text-gray-700 text-sm font-bold mb-2">Téléphone</label>
+                            <input type="tel" id="memberPhone" value="${formData.phone || ''}" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                        </div>
+                        <div class="mb-4">
+                            <label for="memberStatus" class="block text-gray-700 text-sm font-bold mb-2">Statut</label>
+                            <select id="memberStatus" class="shadow border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                                <option value="Membre" ${formData.status === 'Membre' ? 'selected' : ''}>Membre</option>
+                                <option value="Bénévole" ${formData.status === 'Bénévole' ? 'selected' : ''}>Bénévole</option>
+                                <option value="CA" ${formData.status === 'CA' ? 'selected' : ''}>CA</option>
+                                <option value="Ancien membre" ${formData.status === 'Ancien membre' ? 'selected' : ''}>Ancien membre</option>
+                            </select>
+                        </div>
+                        <div class="mb-4">
+                            <label for="memberEngagement" class="block text-gray-700 text-sm font-bold mb-2">Niveau d'engagement</label>
+                            <select id="memberEngagement" class="shadow border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                                <option value="Occasionnel" ${formData.engagement === 'Occasionnel' ? 'selected' : ''}>Occasionnel</option>
+                                <option value="Actif" ${formData.engagement === 'Actif' ? 'selected' : ''}>Actif</option>
+                                <option value="Très actif" ${formData.engagement === 'Très actif' ? 'selected' : ''}>Très actif</option>
+                                <option value="Leader" ${formData.engagement === 'Leader' ? 'selected' : ''}>Leader</option>
+                            </select>
+                        </div>
+                        <div class="mb-4">
+                            <label for="memberJoinDate" class="block text-gray-700 text-sm font-bold mb-2">Date d'adhésion</label>
+                            <input type="date" id="memberJoinDate" value="${formData.joinDate || ''}" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                        </div>
+                        <div class="mb-4">
+                            <label for="memberLastInteraction" class="block text-gray-700 text-sm font-bold mb-2">Dernière interaction</label>
+                            <input type="date" id="memberLastInteraction" value="${formData.lastInteraction || ''}" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                        </div>
+                        <div class="mb-4">
+                            <label for="memberInterests" class="block text-gray-700 text-sm font-bold mb-2">Intérêts (Ctrl/Cmd + clic pour multiple)</label>
+                            <select id="memberInterests" multiple class="shadow border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline h-32">
+                                <option value="Défense des droits" ${formData.interests && formData.interests.includes('Défense des droits') ? 'selected' : ''}>Défense des droits</option>
+                                <option value="Événements" ${formData.interests && formData.interests.includes('Événements') ? 'selected' : ''}>Événements</option>
+                                <option value="YouTube" ${formData.interests && formData.interests.includes('YouTube') ? 'selected' : ''}>YouTube</option>
+                                <option value="Podcast" ${formData.interests && formData.interests.includes('Podcast') ? 'selected' : ''}>Podcast</option>
+                                <option value="Communication" ${formData.interests && formData.interests.includes('Communication') ? 'selected' : ''}>Communication</option>
+                                <option value="Légal" ${formData.interests && formData.interests.includes('Légal') ? 'selected' : ''}>Légal</option>
+                                <option value="Soutien" ${formData.interests && formData.interests.includes('Soutien') ? 'selected' : ''}>Soutien</option>
+                                <option value="Collecte de fonds" ${formData.interests && formData.interests.includes('Collecte de fonds') ? 'selected' : ''}>Collecte de fonds</option>
+                                <option value="Formation" ${formData.interests && formData.interests.includes('Formation') ? 'selected' : ''}>Formation</option>
+                            </select>
+                        </div>
+                    `;
+                    break;
+                case 'interaction':
+                    // Assurez-vous que window.membersData est chargé pour le select
+                    const membersOptions = window.membersData.map(m => `<option value="${m.name}" ${formData.member === m.name ? 'selected' : ''}>${m.name}</option>`).join('');
+                    modalForm.innerHTML = `
+                        <div class="mb-4">
+                            <label for="interactionDate" class="block text-gray-700 text-sm font-bold mb-2">Date *</label>
+                            <input type="date" id="interactionDate" value="${formData.date || ''}" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" required>
+                        </div>
+                        <div class="mb-4">
+                            <label for="interactionMember" class="block text-gray-700 text-sm font-bold mb-2">Membre *</label>
+                            <select id="interactionMember" class="shadow border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" required>
+                                ${membersOptions}
+                            </select>
+                        </div>
+                        <div class="mb-4">
+                            <label for="interactionType" class="block text-gray-700 text-sm font-bold mb-2">Type *</label>
+                            <select id="interactionType" class="shadow border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" required>
+                                <option value="Email" ${formData.type === 'Email' ? 'selected' : ''}>Email</option>
+                                <option value="Appel téléphonique" ${formData.type === 'Appel téléphonique' ? 'selected' : ''}>Appel téléphonique</option>
+                                <option value="Rencontre" ${formData.type === 'Rencontre' ? 'selected' : ''}>Rencontre</option>
+                                <option value="Feedback" ${formData.type === 'Feedback' ? 'selected' : ''}>Feedback</option>
+                                <option value="Soutien direct" ${formData.type === 'Soutien direct' ? 'selected' : ''}>Soutien direct</option>
+                                <option value="Visite" ${formData.type === 'Visite' ? 'selected' : ''}>Visite</option>
+                                <option value="Commentaire web" ${formData.type === 'Commentaire web' ? 'selected' : ''}>Commentaire web</option>
+                            </select>
+                        </div>
+                        <div class="mb-4">
+                            <label for="interactionContext" class="block text-gray-700 text-sm font-bold mb-2">Contexte</label>
+                            <input type="text" id="interactionContext" value="${formData.context || ''}" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                        </div>
+                        <div class="mb-4">
+                            <label for="interactionPriority" class="block text-gray-700 text-sm font-bold mb-2">Priorité</label>
+                            <select id="interactionPriority" class="shadow border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                                <option value="Haute" ${formData.priority === 'Haute' ? 'selected' : ''}>Haute</option>
+                                <option value="Normale" ${formData.priority === 'Normale' ? 'selected' : ''}>Normale</option>
+                                <option value="Basse" ${formData.priority === 'Basse' ? 'selected' : ''}>Basse</option>
+                            </select>
+                        </div>
+                        <div class="mb-4">
+                            <label for="interactionStatus" class="block text-gray-700 text-sm font-bold mb-2">Statut</label>
+                            <select id="interactionStatus" class="shadow border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                                <option value="En attente" ${formData.status === 'En attente' ? 'selected' : ''}>En attente</option>
+                                <option value="En cours" ${formData.status === 'En cours' ? 'selected' : ''}>En cours</option>
+                                <option value="Terminé" ${formData.status === 'Terminé' ? 'selected' : ''}>Terminé</option>
+                                <option value="Annulé" ${formData.status === 'Annulé' ? 'selected' : ''}>Annulé</option>
+                            </select>
+                        </div>
+                        <div class="mb-4">
+                            <label for="interactionSummary" class="block text-gray-700 text-sm font-bold mb-2">Résumé</label>
+                            <textarea id="interactionSummary" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline h-24">${formData.summary || ''}</textarea>
+                        </div>
+                    `;
+                    break;
+                case 'event':
+                    modalForm.innerHTML = `
+                        <div class="mb-4">
+                            <label for="eventName" class="block text-gray-700 text-sm font-bold mb-2">Nom *</label>
+                            <input type="text" id="eventName" value="${formData.name || ''}" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" required>
+                        </div>
+                        <div class="mb-4">
+                            <label for="eventType" class="block text-gray-700 text-sm font-bold mb-2">Type *</label>
+                            <select id="eventType" class="shadow border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" required>
+                                <option value="Conférence" ${formData.type === 'Conférence' ? 'selected' : ''}>Conférence</option>
+                                <option value="Atelier" ${formData.type === 'Atelier' ? 'selected' : ''}>Atelier</option>
+                                <option value="Réunion" ${formData.type === 'Réunion' ? 'selected' : ''}>Réunion</option>
+                                <option value="Kiosque" ${formData.type === 'Kiosque' ? 'selected' : ''}>Kiosque</option>
+                                <option value="Campagne" ${formData.type === 'Campagne' ? 'selected' : ''}>Campagne</option>
+                                <option value="Webinaire" ${formData.type === 'Webinaire' ? 'selected' : ''}>Webinaire</option>
+                                <option value="Formation" ${formData.type === 'Formation' ? 'selected' : ''}>Formation</option>
+                            </select>
+                        </div>
+                        <div class="mb-4">
+                            <label for="eventDate" class="block text-gray-700 text-sm font-bold mb-2">Date *</label>
+                            <input type="date" id="eventDate" value="${formData.date || ''}" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" required>
+                        </div>
+                        <div class="mb-4">
+                            <label for="eventLocation" class="block text-gray-700 text-sm font-bold mb-2">Lieu</label>
+                            <input type="text" id="eventLocation" value="${formData.location || ''}" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                        </div>
+                        <div class="mb-4">
+                            <label for="eventStatus" class="block text-gray-700 text-sm font-bold mb-2">Statut</label>
+                            <select id="eventStatus" class="shadow border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                                <option value="Planifié" ${formData.status === 'Planifié' ? 'selected' : ''}>Planifié</option>
+                                <option value="En cours" ${formData.status === 'En cours' ? 'selected' : ''}>En cours</option>
+                                <option value="Terminé" ${formData.status === 'Terminé' ? 'selected' : ''}>Terminé</option>
+                                <option value="Annulé" ${formData.status === 'Annulé' ? 'selected' : ''}>Annulé</option>
+                            </select>
+                        </div>
+                        <div class="mb-4">
+                            <label for="eventParticipants" class="block text-gray-700 text-sm font-bold mb-2">Participants</label>
+                            <input type="number" id="eventParticipants" value="${formData.participants || ''}" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                        </div>
+                        <div class="mb-4">
+                            <label for="eventDescription" class="block text-gray-700 text-sm font-bold mb-2">Description / Ordre du jour</label>
+                            <textarea id="eventDescription" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline h-24">${formData.description || ''}</textarea>
+                        </div>
+                    `;
+                    break;
+                case 'project':
+                    modalForm.innerHTML = `
+                        <div class="mb-4">
+                            <label for="projectName" class="block text-gray-700 text-sm font-bold mb-2">Nom *</label>
+                            <input type="text" id="projectName" value="${formData.name || ''}" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" required>
+                        </div>
+                        <div class="mb-4">
+                            <label for="projectStatus" class="block text-gray-700 text-sm font-bold mb-2">Statut</label>
+                            <select id="projectStatus" class="shadow border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                                <option value="Idée" ${formData.status === 'Idée' ? 'selected' : ''}>Idée</option>
+                                <option value="Planifié" ${formData.status === 'Planifié' ? 'selected' : ''}>Planifié</option>
+                                <option value="En cours" ${formData.status === 'En cours' ? 'selected' : ''}>En cours</option>
+                                <option value="En pause" ${formData.status === 'En pause' ? 'selected' : ''}>En pause</option>
+                                <option value="Terminé" ${formData.status === 'Terminé' ? 'selected' : ''}>Terminé</option>
+                                <option value="Annulé" ${formData.status === 'Annulé' ? 'selected' : ''}>Annulé</option>
+                            </select>
+                        </div>
+                        <div class="mb-4">
+                            <label for="projectPriority" class="block text-gray-700 text-sm font-bold mb-2">Priorité</label>
+                            <select id="projectPriority" class="shadow border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                                <option value="Haute" ${formData.priority === 'Haute' ? 'selected' : ''}>Haute</option>
+                                <option value="Normale" ${formData.priority === 'Normale' ? 'selected' : ''}>Normale</option>
+                                <option value="Basse" ${formData.priority === 'Basse' ? 'selected' : ''}>Basse</option>
+                            </select>
+                        </div>
+                        <div class="mb-4">
+                            <label for="projectResponsible" class="block text-gray-700 text-sm font-bold mb-2">Responsable</label>
+                            <input type="text" id="projectResponsible" value="${formData.responsible || ''}" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                        </div>
+                        <div class="mb-4">
+                            <label for="projectDueDate" class="block text-gray-700 text-sm font-bold mb-2">Échéance</label>
+                            <input type="date" id="projectDueDate" value="${formData.dueDate || ''}" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                        </div>
+                        <div class="mb-4">
+                            <label for="projectProgress" class="block text-gray-700 text-sm font-bold mb-2">Avancement (%)</label>
+                            <input type="text" id="projectProgress" value="${formData.progress || ''}" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                        </div>
+                        <div class="mb-4">
+                            <label for="projectDescription" class="block text-gray-700 text-sm font-bold mb-2">Description</label>
+                            <textarea id="projectDescription" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline h-24">${formData.description || ''}</textarea>
+                        </div>
+                    `;
+                    break;
+                case 'resource':
+                    modalForm.innerHTML = `
+                        <div class="mb-4">
+                            <label for="resourceName" class="block text-gray-700 text-sm font-bold mb-2">Nom *</label>
+                            <input type="text" id="resourceName" value="${formData.name || ''}" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" required>
+                        </div>
+                        <div class="mb-4">
+                            <label for="resourceType" class="block text-gray-700 text-sm font-bold mb-2">Type *</label>
+                            <select id="resourceType" class="shadow border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" required>
+                                <option value="Document" ${formData.type === 'Document' ? 'selected' : ''}>Document (PDF)</option>
+                                <option value="Guide" ${formData.type === 'Guide' ? 'selected' : ''}>Guide</option>
+                                <option value="Modèle" ${formData.type === 'Modèle' ? 'selected' : ''}>Modèle</option>
+                                <option value="Infographie" ${formData.type === 'Infographie' ? 'selected' : ''}>Infographie</option>
+                                <option value="Article" ${formData.type === 'Article' ? 'selected' : ''}>Article</option>
+                                <option value="Lien web" ${formData.type === 'Lien web' ? 'selected' : ''}>Lien web</option>
+                                <option value="Image" ${formData.type === 'Image' ? 'selected' : ''}>Image</option>
+                                <option value="Vidéo" ${formData.type === 'Vidéo' ? 'selected' : ''}>Vidéo</option>
+                                <option value="Matériel" ${formData.type === 'Matériel' ? 'selected' : ''}>Matériel de communication</option>
+                            </select>
+                        </div>
+                        <div class="mb-4">
+                            <label for="resourceCategory" class="block text-gray-700 text-sm font-bold mb-2">Catégorie</label>
+                            <select id="resourceCategory" class="shadow border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                                <option value="Juridique" ${formData.category === 'Juridique' ? 'selected' : ''}>Juridique</option>
+                                <option value="Communication" ${formData.category === 'Communication' ? 'selected' : ''}>Communication</option>
+                                <option value="Soutien" ${formData.category === 'Soutien' ? 'selected' : ''}>Soutien</option>
+                                <option value="Recherche" ${formData.category === 'Recherche' ? 'selected' : ''}>Recherche</option>
+                                <option value="Interne" ${formData.category === 'Interne' ? 'selected' : ''}>Interne</option>
+                                <option value="Formation" ${formData.category === 'Formation' ? 'selected' : ''}>Formation</option>
+                                <option value="Sensibilisation" ${formData.category === 'Sensibilisation' ? 'selected' : ''}>Sensibilisation</option>
+                            </select>
+                        </div>
+                        <div class="mb-4">
+                            <label for="resourceCreatedBy" class="block text-gray-700 text-sm font-bold mb-2">Créé par</label>
+                            <input type="text" id="resourceCreatedBy" value="${formData.createdBy || ''}" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                        </div>
+                        <div class="mb-4">
+                            <label for="resourceCreationDate" class="block text-gray-700 text-sm font-bold mb-2">Date création</label>
+                            <input type="date" id="resourceCreationDate" value="${formData.creationDate || ''}" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                        </div>
+                        <div class="mb-4">
+                            <label for="resourceStatus" class="block text-gray-700 text-sm font-bold mb-2">Statut</label>
+                            <select id="resourceStatus" class="shadow border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                                <option value="Brouillon" ${formData.status === 'Brouillon' ? 'selected' : ''}>Brouillon</option>
+                                <option value="En révision" ${formData.status === 'En révision' ? 'selected' : ''}>En révision</option>
+                                <option value="Validé" ${formData.status === 'Validé' ? 'selected' : ''}>Validé</option>
+                                <option value="Archivé" ${formData.status === 'Archivé' ? 'selected' : ''}>Archivé</option>
+                            </select>
+                        </div>
+                        <div class="mb-4">
+                            <label for="resourceLink" class="block text-gray-700 text-sm font-bold mb-2">Lien / Fichier (URL)</label>
+                            <input type="url" id="resourceLink" value="${formData.link || ''}" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                        </div>
+                    `;
+                    break;
+                case 'media':
+                    modalForm.innerHTML = `
+                        <div class="mb-4">
+                            <label for="mediaTitle" class="block text-gray-700 text-sm font-bold mb-2">Titre *</label>
+                            <input type="text" id="mediaTitle" value="${formData.title || ''}" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" required>
+                        </div>
+                        <div class="mb-4">
+                            <label for="mediaType" class="block text-gray-700 text-sm font-bold mb-2">Type *</label>
+                            <select id="mediaType" class="shadow border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" required>
+                                <option value="Vidéo YouTube" ${formData.type === 'Vidéo YouTube' ? 'selected' : ''}>Vidéo YouTube</option>
+                                <option value="Podcast" ${formData.type === 'Podcast' ? 'selected' : ''}>Podcast</option>
+                                <option value="Article de blog" ${formData.type === 'Article de blog' ? 'selected' : ''}>Article de blog</option>
+                                <option value="Communiqué de presse" ${formData.type === 'Communiqué de presse' ? 'selected' : ''}>Communiqué de presse</option>
+                                <option value="Image réseaux sociaux" ${formData.type === 'Image réseaux sociaux' ? 'selected' : ''}>Image réseaux sociaux</option>
+                            </select>
+                        </div>
+                        <div class="mb-4">
+                            <label for="mediaStatus" class="block text-gray-700 text-sm font-bold mb-2">Statut</label>
+                            <select id="mediaStatus" class="shadow border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                                <option value="En production" ${formData.status === 'En production' ? 'selected' : ''}>En production</option>
+                                <option value="Montage" ${formData.status === 'Montage' ? 'selected' : ''}>Montage</option>
+                                <option value="En attente de publication" ${formData.status === 'En attente de publication' ? 'selected' : ''}>En attente de publication</option>
+                                <option value="Publié" ${formData.status === 'Publié' ? 'selected' : ''}>Publié</option>
+                                <option value="Archivé" ${formData.status === 'Archivé' ? 'selected' : ''}>Archivé</option>
+                            </select>
+                        </div>
+                        <div class="mb-4">
+                            <label for="mediaPublicationDate" class="block text-gray-700 text-sm font-bold mb-2">Date publication</label>
+                            <input type="date" id="mediaPublicationDate" value="${formData.publicationDate || ''}" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                        </div>
+                        <div class="mb-4">
+                            <label for="mediaSpeaker" class="block text-gray-700 text-sm font-bold mb-2">Intervenant</label>
+                            <input type="text" id="mediaSpeaker" value="${formData.speaker || ''}" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                        </div>
+                        <div class="mb-4">
+                            <label for="mediaViews" class="block text-gray-700 text-sm font-bold mb-2">Vues</label>
+                            <input type="text" id="mediaViews" value="${formData.views || ''}" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                        </div>
+                        <div class="mb-4">
+                            <label for="mediaLink" class="block text-gray-700 text-sm font-bold mb-2">Lien (URL)</label>
+                            <input type="url" id="mediaLink" value="${formData.link || ''}" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                        </div>
+                    `;
+                    break;
+            }
+
+            // Définir le gestionnaire de soumission de formulaire
+            modalForm.onsubmit = function(event) {
+                event.preventDefault(); // Empêcher la soumission par défaut du formulaire
+                saveData(type, id);
+            };
+
+            modal.style.display = 'flex'; // Afficher la modale
+        }
+
+        // Fonction pour fermer n'importe quelle modale
+        function closeModal(modalId) {
+            document.getElementById(modalId).style.display = 'none';
+        }
+
+        // Fonction pour sauvegarder les données du formulaire de la modale
+        async function saveData(type, id) {
+            const db = window.firestoreDb; // Accéder à l'instance Firestore globale
+            const currentUserId = window.currentUserId; // Accéder à l'ID utilisateur global
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+            if (!db || !currentUserId || currentUserId === 'loading') {
+                console.error("Firestore non initialisé ou ID utilisateur non disponible.");
+                // Afficher un message d'erreur à l'utilisateur si possible
+                return;
+            }
+
+            let newData = {};
+            let collectionPath = `artifacts/${appId}/users/${currentUserId}/`;
+
+            // Collecter les données en fonction des champs du formulaire
+            switch (type) {
+                case 'member':
+                    newData = {
+                        name: document.getElementById('memberName').value,
+                        email: document.getElementById('memberEmail').value,
+                        phone: document.getElementById('memberPhone').value,
+                        status: document.getElementById('memberStatus').value,
+                        engagement: document.getElementById('memberEngagement').value,
+                        joinDate: document.getElementById('memberJoinDate').value,
+                        lastInteraction: document.getElementById('memberLastInteraction').value,
+                        interests: Array.from(document.getElementById('memberInterests').selectedOptions).map(option => option.value)
+                    };
+                    collectionPath += 'members';
+                    break;
+                case 'interaction':
+                    newData = {
+                        date: document.getElementById('interactionDate').value,
+                        member: document.getElementById('interactionMember').value,
+                        type: document.getElementById('interactionType').value,
+                        context: document.getElementById('interactionContext').value,
+                        priority: document.getElementById('interactionPriority').value,
+                        status: document.getElementById('interactionStatus').value,
+                        summary: document.getElementById('interactionSummary').value
+                    };
+                    collectionPath += 'interactions';
+                    break;
+                case 'event':
+                    newData = {
+                        name: document.getElementById('eventName').value,
+                        type: document.getElementById('eventType').value,
+                        date: document.getElementById('eventDate').value,
+                        location: document.getElementById('eventLocation').value,
+                        status: document.getElementById('eventStatus').value,
+                        participants: parseInt(document.getElementById('eventParticipants').value) || 0,
+                        description: document.getElementById('eventDescription').value
+                    };
+                    collectionPath += 'events';
+                    break;
+                case 'project':
+                    newData = {
+                        name: document.getElementById('projectName').value,
+                        status: document.getElementById('projectStatus').value,
+                        priority: document.getElementById('projectPriority').value,
+                        responsible: document.getElementById('projectResponsible').value,
+                        dueDate: document.getElementById('projectDueDate').value,
+                        progress: document.getElementById('projectProgress').value,
+                        description: document.getElementById('projectDescription').value
+                    };
+                    collectionPath += 'projects';
+                    break;
+                case 'resource':
+                    newData = {
+                        name: document.getElementById('resourceName').value,
+                        type: document.getElementById('resourceType').value,
+                        category: document.getElementById('resourceCategory').value,
+                        createdBy: document.getElementById('resourceCreatedBy').value,
+                        creationDate: document.getElementById('resourceCreationDate').value,
+                        status: document.getElementById('resourceStatus').value,
+                        link: document.getElementById('resourceLink').value
+                    };
+                    collectionPath += 'resources';
+                    break;
+                case 'media':
+                    newData = {
+                        title: document.getElementById('mediaTitle').value,
+                        type: document.getElementById('mediaType').value,
+                        status: document.getElementById('mediaStatus').value,
+                        publicationDate: document.getElementById('mediaPublicationDate').value,
+                        speaker: document.getElementById('mediaSpeaker').value,
+                        views: document.getElementById('mediaViews').value,
+                        link: document.getElementById('mediaLink').value
+                    };
+                    collectionPath += 'media';
+                    break;
+            }
+
+            try {
+                if (id) {
+                    // Mettre à jour les données existantes
+                    await setDoc(doc(db, collectionPath, id), newData, { merge: true });
+                    console.log("Document mis à jour avec l'ID: ", id);
+                } else {
+                    // Ajouter un nouveau document
+                    const docRef = await addDoc(collection(db, collectionPath), newData);
+                    console.log("Document écrit avec l'ID: ", docRef.id);
+                }
+                closeModal('addEditModal');
+                // Les listeners onSnapshot se chargeront de rafraîchir les tables
+            } catch (e) {
+                console.error("Erreur lors de l'ajout/mise à jour du document: ", e);
+                // Afficher un message d'erreur à l'utilisateur
+            }
+        }
+
+        // Fonction pour ouvrir la modale de visualisation générique
+        function openViewModal(type, id) {
+            const modal = document.getElementById('viewModal');
+            const viewModalTitle = document.getElementById('viewModalTitle');
+            const viewModalContent = document.getElementById('viewModalContent');
+            viewModalContent.innerHTML = ''; // Effacer le contenu précédent
+
+            let itemData = {};
+            switch (type) {
+                case 'member': itemData = window.membersData.find(m => m.id === id); viewModalTitle.textContent = `Détails du Membre: ${itemData.name}`; break;
+                case 'interaction': itemData = window.interactionsData.find(i => i.id === id); viewModalTitle.textContent = `Détails de l'Interaction: ${itemData.member} - ${itemData.type}`; break;
+                case 'event': itemData = window.eventsData.find(e => e.id === id); viewModalTitle.textContent = `Détails de l'Événement: ${itemData.name}`; break;
+                case 'project': itemData = window.projectsData.find(p => p.id === id); viewModalTitle.textContent = `Détails du Projet: ${itemData.name}`; break;
+                case 'resource': itemData = window.resourcesData.find(r => r.id === id); viewModalTitle.textContent = `Détails de la Ressource: ${itemData.name}`; break;
+                case 'media': itemData = window.mediaData.find(m => m.id === id); viewModalTitle.textContent = `Détails du Média: ${itemData.title}`; break;
+            }
+
+            // Afficher toutes les propriétés de l'élément
+            for (const key in itemData) {
+                if (itemData.hasOwnProperty(key)) {
+                    let value = itemData[key];
+                    if (Array.isArray(value)) {
+                        value = value.join(', ');
+                    }
+                    viewModalContent.innerHTML += `<p><strong class="capitalize">${key.replace(/([A-Z])/g, ' $1').trim()}:</strong> ${value}</p>`;
+                }
+            }
+            modal.style.display = 'flex';
+        }
+
+        // Fonction pour rendre le tableau des Membres
+        function renderMembersTable() {
+            const tbody = document.getElementById('membersTableBody');
+            tbody.innerHTML = ''; // Effacer les lignes existantes
+            window.membersData.forEach(member => {
+                const row = tbody.insertRow();
+                row.innerHTML = `
+                    <td class="p-3 border-b border-gray-200">${member.name || ''}</td>
+                    <td class="p-3 border-b border-gray-200">${member.email || ''}</td>
+                    <td class="p-3 border-b border-gray-200"><span class="status-badge status-${(member.status || '').toLowerCase().replace(/\s/g, '')}">${member.status || ''}</span></td>
+                    <td class="p-3 border-b border-gray-200">${member.engagement || ''}</td>
+                    <td class="p-3 border-b border-gray-200">${member.joinDate || ''}</td>
+                    <td class="p-3 border-b border-gray-200">${member.lastInteraction || ''}</td>
+                    <td class="p-3 border-b border-gray-200">
+                        <button class="bg-blue-500 hover:bg-blue-600 text-white p-2 rounded-md mr-1" onclick="openAddEditModal('member', '${member.id}')">✏️</button>
+                        <button class="bg-gray-500 hover:bg-gray-600 text-white p-2 rounded-md" onclick="openViewModal('member', '${member.id}')">👁️</button>
+                    </td>
+                `;
+            });
+        }
+
+        // Fonction pour rendre le tableau des Interactions
+        function renderInteractionsTable() {
+            const tbody = document.getElementById('interactionsTableBody');
+            tbody.innerHTML = '';
+            window.interactionsData.forEach(interaction => {
+                const row = tbody.insertRow();
+                const priorityClass = (interaction.priority === 'Haute' ? 'priority-haute' : (interaction.priority === 'Normale' ? 'priority-normale' : 'priority-basse'));
+                const statusClass = `status-${(interaction.status || '').toLowerCase().replace(/\s/g, '')}`;
+                row.innerHTML = `
+                    <td class="p-3 border-b border-gray-200">${interaction.date || ''}</td>
+                    <td class="p-3 border-b border-gray-200">${interaction.member || ''}</td>
+                    <td class="p-3 border-b border-gray-200">${interaction.type || ''}</td>
+                    <td class="p-3 border-b border-gray-200">${interaction.context || ''}</td>
+                    <td class="p-3 border-b border-gray-200"><span class="${priorityClass}">${interaction.priority || ''}</span></td>
+                    <td class="p-3 border-b border-gray-200"><span class="status-badge ${statusClass}">${interaction.status || ''}</span></td>
+                    <td class="p-3 border-b border-gray-200">
+                        <button class="bg-blue-500 hover:bg-blue-600 text-white p-2 rounded-md mr-1" onclick="openAddEditModal('interaction', '${interaction.id}')">✏️</button>
+                        <button class="bg-gray-500 hover:bg-gray-600 text-white p-2 rounded-md" onclick="openViewModal('interaction', '${interaction.id}')">👁️</button>
+                    </td>
+                `;
+            });
+        }
+
+        // Fonction pour rendre le tableau des Événements
+        function renderEventsTable() {
+            const tbody = document.getElementById('eventsTableBody');
+            tbody.innerHTML = '';
+            window.eventsData.forEach(event => {
+                const row = tbody.insertRow();
+                const statusClass = `status-${(event.status || '').toLowerCase().replace(/\s/g, '')}`;
+                row.innerHTML = `
+                    <td class="p-3 border-b border-gray-200">${event.name || ''}</td>
+                    <td class="p-3 border-b border-gray-200">${event.type || ''}</td>
+                    <td class="p-3 border-b border-gray-200">${event.date || ''}</td>
+                    <td class="p-3 border-b border-gray-200">${event.location || ''}</td>
+                    <td class="p-3 border-b border-gray-200"><span class="status-badge ${statusClass}">${event.status || ''}</span></td>
+                    <td class="p-3 border-b border-gray-200">${event.participants || 0}</td>
+                    <td class="p-3 border-b border-gray-200">
+                        <button class="bg-blue-500 hover:bg-blue-600 text-white p-2 rounded-md mr-1" onclick="openAddEditModal('event', '${event.id}')">✏️</button>
+                        <button class="bg-gray-500 hover:bg-gray-600 text-white p-2 rounded-md" onclick="openViewModal('event', '${event.id}')">👁️</button>
+                    </td>
+                `;
+            });
+        }
+
+        // Fonction pour rendre le tableau des Projets
+        function renderProjectsTable() {
+            const tbody = document.getElementById('projectsTableBody');
+            tbody.innerHTML = '';
+            window.projectsData.forEach(project => {
+                const row = tbody.insertRow();
+                const statusClass = `status-${(project.status || '').toLowerCase().replace(/\s/g, '')}`;
+                const priorityClass = (project.priority === 'Haute' ? 'priority-haute' : (project.priority === 'Normale' ? 'priority-normale' : 'priority-basse'));
+                row.innerHTML = `
+                    <td class="p-3 border-b border-gray-200">${project.name || ''}</td>
+                    <td class="p-3 border-b border-gray-200"><span class="status-badge ${statusClass}">${project.status || ''}</span></td>
+                    <td class="p-3 border-b border-gray-200"><span class="${priorityClass}">${project.priority || ''}</span></td>
+                    <td class="p-3 border-b border-gray-200">${project.responsible || ''}</td>
+                    <td class="p-3 border-b border-gray-200">${project.dueDate || ''}</td>
+                    <td class="p-3 border-b border-gray-200">${project.progress || ''}</td>
+                    <td class="p-3 border-b border-gray-200">
+                        <button class="bg-blue-500 hover:bg-blue-600 text-white p-2 rounded-md mr-1" onclick="openAddEditModal('project', '${project.id}')">✏️</button>
+                        <button class="bg-gray-500 hover:bg-gray-600 text-white p-2 rounded-md" onclick="openViewModal('project', '${project.id}')">👁️</button>
+                    </td>
+                `;
+            });
+        }
+
+        // Fonction pour rendre le tableau des Ressources
+        function renderResourcesTable() {
+            const tbody = document.getElementById('resourcesTableBody');
+            tbody.innerHTML = '';
+            window.resourcesData.forEach(resource => {
+                const row = tbody.insertRow();
+                const statusClass = `status-${(resource.status || '').toLowerCase().replace(/\s/g, '')}`;
+                row.innerHTML = `
+                    <td class="p-3 border-b border-gray-200">${resource.name || ''}</td>
+                    <td class="p-3 border-b border-gray-200">${resource.type || ''}</td>
+                    <td class="p-3 border-b border-gray-200">${resource.category || ''}</td>
+                    <td class="p-3 border-b border-gray-200">${resource.createdBy || ''}</td>
+                    <td class="p-3 border-b border-gray-200">${resource.creationDate || ''}</td>
+                    <td class="p-3 border-b border-gray-200"><span class="status-badge ${statusClass}">${resource.status || ''}</span></td>
+                    <td class="p-3 border-b border-gray-200">
+                        <button class="bg-blue-500 hover:bg-blue-600 text-white p-2 rounded-md mr-1" onclick="openAddEditModal('resource', '${resource.id}')">✏️</button>
+                        <button class="bg-gray-500 hover:bg-gray-600 text-white p-2 rounded-md" onclick="openViewModal('resource', '${resource.id}')">👁️</button>
+                    </td>
+                `;
+            });
+        }
+
+        // Fonction pour rendre le tableau des Médias
+        function renderMediaTable() {
+            const tbody = document.getElementById('mediaTableBody');
+            tbody.innerHTML = '';
+            window.mediaData.forEach(media => {
+                const row = tbody.insertRow();
+                const statusClass = `status-${(media.status || '').toLowerCase().replace(/\s/g, '')}`;
+                row.innerHTML = `
+                    <td class="p-3 border-b border-gray-200">${media.title || ''}</td>
+                    <td class="p-3 border-b border-gray-200">${media.type || ''}</td>
+                    <td class="p-3 border-b border-gray-200"><span class="status-badge ${statusClass}">${media.status || ''}</span></td>
+                    <td class="p-3 border-b border-gray-200">${media.publicationDate || ''}</td>
+                    <td class="p-3 border-b border-gray-200">${media.speaker || ''}</td>
+                    <td class="p-3 border-b border-gray-200">${media.views || ''}</td>
+                    <td class="p-3 border-b border-gray-200">
+                        <button class="bg-blue-500 hover:bg-blue-600 text-white p-2 rounded-md mr-1" onclick="openAddEditModal('media', '${media.id}')">✏️</button>
+                        <button class="bg-gray-500 hover:bg-gray-600 text-white p-2 rounded-md" onclick="openViewModal('media', '${media.id}')">👁️</button>
+                    </td>
+                `;
+            });
+        }
+
+        // Fonction pour filtrer les tableaux
+        function filterTable(tableId, searchTerm) {
+            const table = document.getElementById(tableId);
+            const rows = table.getElementsByTagName('tbody')[0].getElementsByTagName('tr');
+            const filter = searchTerm.toLowerCase();
+
+            for (let i = 0; i < rows.length; i++) {
+                let rowText = rows[i].textContent || rows[i].innerText;
+                if (rowText.toLowerCase().indexOf(filter) > -1) {
+                    rows[i].style.display = '';
+                } else {
+                    rows[i].style.display = 'none';
+                }
+            }
+        }
+
+        // Fonction pour exporter les données au format CSV
+        function exportData(dataType) {
+            let dataToExport = [];
+            let headers = [];
+            let filename = `${dataType}.csv`;
+
+            switch (dataType) {
+                case 'members':
+                    dataToExport = window.membersData;
+                    headers = ['id', 'name', 'email', 'phone', 'status', 'engagement', 'joinDate', 'lastInteraction', 'interests'];
+                    break;
+                case 'interactions':
+                    dataToExport = window.interactionsData;
+                    headers = ['id', 'date', 'member', 'type', 'context', 'priority', 'status', 'summary'];
+                    break;
+                case 'events':
+                    dataToExport = window.eventsData;
+                    headers = ['id', 'name', 'type', 'date', 'location', 'status', 'participants', 'description'];
+                    break;
+                case 'projects':
+                    dataToExport = window.projectsData;
+                    headers = ['id', 'name', 'status', 'priority', 'responsible', 'dueDate', 'progress', 'description'];
+                    break;
+                case 'resources':
+                    dataToExport = window.resourcesData;
+                    headers = ['id', 'name', 'type', 'category', 'createdBy', 'creationDate', 'status', 'link'];
+                    break;
+                case 'media':
+                    dataToExport = window.mediaData;
+                    headers = ['id', 'title', 'type', 'status', 'publicationDate', 'speaker', 'views', 'link'];
+                    break;
+                default:
+                    console.error('Type de données inconnu pour l\'exportation:', dataType);
+                    return;
+            }
+
+            let csvContent = headers.map(header => `"${header}"`).join(',') + '\n'; // En-tête CSV
+            dataToExport.forEach(item => {
+                const row = headers.map(header => {
+                    let value = item[header];
+                    if (Array.isArray(value)) {
+                        value = value.join(';'); // Joindre les éléments du tableau avec un point-virgule
+                    }
+                    return `"${String(value || '').replace(/"/g, '""')}"`; // Gérer les virgules et les guillemets dans les valeurs
+                }).join(',');
+                csvContent += row + '\n';
+            });
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            if (link.download !== undefined) { // Détection de la fonctionnalité pour l'attribut download
+                const url = URL.createObjectURL(blob);
+                link.setAttribute('href', url);
+                link.setAttribute('download', filename);
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            } else {
+                // Solution de repli pour les navigateurs qui ne supportent pas l'attribut download
+                console.warn('L\'attribut de téléchargement n\'est pas pris en charge. Copiez le contenu CSV suivant manuellement:\n', csvContent);
+                // Optionnellement, afficher le contenu dans une zone de texte pour une copie manuelle
+            }
+        }
+
+        // Fonction pour générer la vue du calendrier
+        function generateCalendar() {
+            const calendarView = document.getElementById('calendarView');
+            calendarView.innerHTML = ''; // Effacer le calendrier existant
+
+            const daysOfWeek = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
+            daysOfWeek.forEach(day => {
+                calendarView.innerHTML += `<div class="calendar-day bg-blue-600 text-white font-bold text-center p-2 flex items-center justify-center min-h-[40px]">${day}</div>`;
+            });
+
+            // Obtenir la date actuelle
+            const today = new Date();
+            const currentDay = today.getDate();
+            const currentMonth = today.getMonth();
+            const currentYear = today.getFullYear();
+
+            // Trouver le début de la semaine (Lundi)
+            const firstDayOfWeek = new Date(today);
+            firstDayOfWeek.setDate(currentDay - (today.getDay() === 0 ? 6 : today.getDay() - 1)); // Ajuster pour que le dimanche (0) soit le dernier jour
+
+            for (let i = 0; i < 7; i++) {
+                const date = new Date(firstDayOfWeek);
+                date.setDate(firstDayOfWeek.getDate() + i);
+
+                const dayDiv = document.createElement('div');
+                dayDiv.classList.add('calendar-day', 'bg-white', 'p-2', 'min-h-[80px]', 'text-sm', 'relative', 'overflow-hidden');
+                dayDiv.innerHTML = `<div class="font-bold text-gray-800">${date.getDate()}</div>`;
+
+                // Ajouter les événements pour ce jour
+                window.eventsData.forEach(event => {
+                    const eventDate = new Date(event.date);
+                    if (eventDate.getDate() === date.getDate() &&
+                        eventDate.getMonth() === date.getMonth() &&
+                        eventDate.getFullYear() === date.getFullYear()) {
+                        const eventDiv = document.createElement('div');
+                        eventDiv.classList.add('calendar-event', 'bg-blue-100', 'text-blue-800', 'px-2', 'py-1', 'rounded-md', 'text-xs', 'mt-1', 'cursor-pointer');
+                        eventDiv.textContent = event.name;
+                        eventDiv.title = `Lieu: ${event.location}, Statut: ${event.status}`;
+                        eventDiv.onclick = () => openViewModal('event', event.id);
+                        dayDiv.appendChild(eventDiv);
+                    }
+                });
+
+                // Ajouter les interactions pour ce jour
+                window.interactionsData.forEach(interaction => {
+                    const interactionDate = new Date(interaction.date);
+                    if (interactionDate.getDate() === date.getDate() &&
+                        interactionDate.getMonth() === date.getMonth() &&
+                        interactionDate.getFullYear() === date.getFullYear()) {
+                        const interactionDiv = document.createElement('div');
+                        interactionDiv.classList.add('calendar-event', 'bg-purple-100', 'text-purple-800', 'px-2', 'py-1', 'rounded-md', 'text-xs', 'mt-1', 'cursor-pointer');
+                        interactionDiv.textContent = `💬 ${interaction.member} (${interaction.type})`;
+                        interactionDiv.title = `Contexte: ${interaction.context}, Statut: ${interaction.status}`;
+                        interactionDiv.onclick = () => openViewModal('interaction', interaction.id);
+                        dayDiv.appendChild(interactionDiv);
+                    }
+                });
+
+                calendarView.appendChild(dayDiv);
+            }
+        }
+
+
+        // Rendu initial au chargement de la page
+        document.addEventListener('DOMContentLoaded', () => {
+            showTab('dashboard'); // Afficher le tableau de bord par défaut
+            // Les fonctions renderTable et generateCalendar seront appelées par les listeners Firestore une fois les données chargées
+        });
+
+    </script>
+</body>
+</html>
