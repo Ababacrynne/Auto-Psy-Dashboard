@@ -118,17 +118,8 @@
         import { getFirestore, collection, onSnapshot, addDoc, setDoc, doc, deleteDoc, query, orderBy } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // Global variables for Firebase (provided by Canvas environment)
-       const appId = 'auto-psy-v1'; 
-const firebaseConfig = { /* ... votre config Firebase ... */ };
-        const appId = typeof __app_id !== 'auto-psy-v1' ? __app_id : '1:378163118374';
-        <script type="module">
-  // Import the functions you need from the SDKs you need
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-app.js";
-  // TODO: Add SDKs for Firebase products that you want to use
-  // https://firebase.google.com/docs/web/setup#available-libraries
-
-  // Your web app's Firebase configuration
-  const firebaseConfig = {
+        const appId = __app_id !== 'auto-psy-v1'  __app_id : 'default-app-id 'auto-psy-v1';
+        const firebaseConfig = {
     apiKey: "AIzaSyB8iFnHrKgZoDJU0Z0q8tOOCJ9juWbvziM",
     authDomain: "autopsydata.firebaseapp.com",
     projectId: "autopsydata",
@@ -136,11 +127,7 @@ const firebaseConfig = { /* ... votre config Firebase ... */ };
     messagingSenderId: "378163118374",
     appId: "1:378163118374:web:fea7488e9f3c51d94f01e7"
   };
-
-  // Initialize Firebase
-  const app = initializeApp(firebaseConfig);
-</script>
-        const initialAuthToken = typeof __initial_auth_token !== null ? __initial_auth_token : null;
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
         // Initialize Firebase
         let app;
